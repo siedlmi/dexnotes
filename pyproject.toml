@@ -1,0 +1,18 @@
+[project]
+name = "dexnotes"
+version = "0.1.0"
+description = "CLI tool for managing customer notes and standups"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [
+  { name="Michal Siedleckie", email="mi.siedlecki@gmail.com" }
+]
+license = { text = "MIT" }
+dependencies = []
+
+[project.scripts]
+dexnotes = "dexnotes.__main__:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
