@@ -1,6 +1,6 @@
 [project]
 name = "dexnotes"
-version = "0.1.1"
+version = "0.1.2"
 description = "CLI tool for managing customer notes and standups"
 readme = "README.md"
 requires-python = ">=3.8"
