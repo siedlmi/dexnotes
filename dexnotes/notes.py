@@ -1,17 +1,4 @@
-from dataclasses import dataclass
-from typing import List, Optional
-
-@dataclass
-class Note:
-    id: int
-    customer: str
-    timestamp: str
-    tags: Optional[List[str]]
-    notes: str
-    items: Optional[List[dict]]
-    deadlines: Optional[List[str]]
-    archived: bool = False
-
+from dexnotes.models import Note
 from dexnotes.db import get_connection
 import json
 from datetime import datetime

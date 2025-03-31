@@ -1,6 +1,7 @@
 # db.py
 import sqlite3
 import os
+import json
 
 
 DB_FILE = os.path.expanduser('~/.dexnotes.db')
