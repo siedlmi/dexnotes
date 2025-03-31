@@ -1,4 +1,6 @@
 notes.db
+*Db.*
+
 # Python bytecode files
 __pycache__/
 *.py[cod]

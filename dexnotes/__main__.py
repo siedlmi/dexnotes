@@ -93,6 +93,61 @@ def view_notes(args):
                 print("⚠️  Failed to parse deadlines.")
         print("-" * 40)
 
+def search_notes(args):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    query = '''
+        SELECT id, customer, timestamp, notes, items, tags FROM notes
+        WHERE notes LIKE ? OR tags LIKE ?
+    '''
+    params = [f'%{args.query}%', f'%{args.query}%']
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+
+    matching_notes = []
+    for row in rows:
+        note_id, customer, timestamp, notes, items, tags = row
+        matching_notes.append((note_id, customer, timestamp, notes, items, tags))
+
+        if items:
+            try:
+                parsed_items = json.loads(items)
+                for item in parsed_items:
+                    if isinstance(item, dict) and args.query in item.get('text', ''):
+                        matching_notes.append((note_id, customer, timestamp, notes, items, tags))
+                        break
+            except Exception:
+                print("⚠️  Failed to parse items")
+
+    conn.close()
+
+    if not matching_notes:
+        print("📭 No matching notes found.")
+        return
+
+    print("\n🗂️ Matching Notes:\n")
+    for note_id, customer, timestamp, notes, items, tags in matching_notes:
+        summary = notes.split('\n')[0][:60] + ('...' if len(notes) > 60 else '')
+        print(f"🆔 {note_id} | 🧑 {customer} | 🕒 {timestamp}")
+        print(f"   📝 {summary}")
+
+        if tags:
+            print(f"   🏷️ Tags: {tags}")
+
+        if items:
+            try:
+                parsed_items = json.loads(items)
+                if isinstance(parsed_items, list):
+                    for item in parsed_items:
+                        if isinstance(item, dict):
+                            status = item.get("status", "open")
+                            icon = "✅" if status == "closed" else "🔄"
+                            print(f"   - {icon} {item.get('text', '')}")
+            except Exception:
+                print("   ⚠️ Failed to parse items")
+
+        print("-" * 60)
+
 def list_customers(args):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -266,13 +321,75 @@ def migrate_items_to_structured(args=None):
     conn.close()
     print("✅ Migration complete.")
 
+def export_notes(args):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('SELECT id, customer, timestamp, tags, notes, items, deadlines FROM notes')
+    rows = cursor.fetchall()
+    conn.close()
+
+    # Prepare export data
+    notes_list = []
+    for row in rows:
+        note = {
+            "id": row[0],
+            "customer": row[1],
+            "timestamp": row[2],
+            "tags": row[3],
+            "notes": row[4],
+            "items": json.loads(row[5]) if row[5] else None,
+            "deadlines": json.loads(row[6]) if row[6] else None
+        }
+        notes_list.append(note)
+
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    export_format = args.format.lower()
+    if export_format == 'json':
+        output = json.dumps(notes_list, indent=2)
+        default_filename = f"notes_{date_str}.json"
+    elif export_format == 'markdown':
+        lines = [f"# Notes Export - {date_str}", ""]
+        for note in notes_list:
+            lines.append(f"## Note ID: {note['id']} - {note['customer']}")
+            lines.append(f"**Timestamp:** {note['timestamp']}")
+            if note['tags']:
+                lines.append(f"**Tags:** {note['tags']}")
+            lines.append("")
+            lines.append(note['notes'])
+            lines.append("\n---\n")
+        output = "\n".join(lines)
+        default_filename = f"notes_{date_str}.md"
+    else:
+        print("❌ Unsupported format.")
+        return
+
+    filename = args.out if args.out else default_filename
+    with open(filename, 'w', encoding='utf-8') as f:
+        f.write(output)
+    print(f"✅ Notes exported to {filename}.")
+
 def list_notes(args):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute('''
-        SELECT id, customer, timestamp, notes, items FROM notes
-        ORDER BY timestamp DESC
-    ''')
+
+    query = '''
+        SELECT id, customer, timestamp, notes, items, tags FROM notes
+    '''
+    conditions = []
+    params = []
+
+    if not args.all:
+        conditions.append("archived = 0")
+
+    if args.tag:
+        conditions.append("tags LIKE ?")
+        params.append(f'%{args.tag}%')
+
+    if conditions:
+        query += ' WHERE ' + ' AND '.join(conditions)
+
+    query += ' ORDER BY timestamp DESC'
+    cursor.execute(query, params)
     rows = cursor.fetchall()
     conn.close()
 
@@ -281,10 +398,13 @@ def list_notes(args):
         return
 
     print("\n🗂️ All Notes:\n")
-    for note_id, customer, timestamp, notes, items in rows:
+    for note_id, customer, timestamp, notes, items, tags in rows:
         summary = notes.split('\n')[0][:60] + ('...' if len(notes) > 60 else '')
         print(f"🆔 {note_id} | 🧑 {customer} | 🕒 {timestamp}")
         print(f"   📝 {summary}")
+
+        if tags:
+            print(f"   🏷️ Tags: {tags}")
 
         if items:
             try:
@@ -300,7 +420,52 @@ def list_notes(args):
 
         print("-" * 60)
 
+def list_items(args):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('SELECT id, customer, items FROM notes')
+    notes = cursor.fetchall()
+    conn.close()
 
+    filtered_items = []
+
+    for note_id, customer, items_json in notes:
+        if not items_json:
+            continue
+
+        try:
+            items = json.loads(items_json)
+        except Exception:
+            print(f"⚠️ Failed to parse items for note {note_id}.")
+            continue
+
+        for item in items:
+            if isinstance(item, dict):
+                if args.status == 'all' or item.get('status') == args.status:
+                    filtered_items.append((note_id, customer, item['text'], item['status']))
+
+    if not filtered_items:
+        print("📭 No items found.")
+        return
+
+    print("\n🗂️ All Items:\n")
+    for note_id, customer, text, status in filtered_items:
+        print(f"🆔 Note ID: {note_id} | 🧑 Customer: {customer} | 📋 Item: {text} | Status: {status}")
+
+def archive_note(args):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('SELECT id FROM notes WHERE id = ?', (args.id,))
+    note = cursor.fetchone()
+
+    if not note:
+        print(f"❌ Note with ID {args.id} not found.")
+        return
+
+    cursor.execute('UPDATE notes SET archived = 1 WHERE id = ?', (args.id,))
+    conn.commit()
+    conn.close()
+    print(f"📦 Note {args.id} archived.")
 
 def main():
     init_db()
@@ -322,6 +487,11 @@ def main():
     parser_view.add_argument('--customer', required=True)
     parser_view.set_defaults(func=view_notes)
 
+    # Search
+    parser_search = subparsers.add_parser('search', help='Search notes by keyword')
+    parser_search.add_argument('--query', required=True, help='Search keyword')
+    parser_search.set_defaults(func=search_notes)
+
     # Customers
     parser_customers = subparsers.add_parser('customers', help='List all customers')
     parser_customers.set_defaults(func=list_customers)
@@ -342,6 +512,11 @@ def main():
     parser_delete.add_argument('--id', type=int, required=True)
     parser_delete.set_defaults(func=delete_note)
 
+    # Archive
+    parser_archive = subparsers.add_parser('archive', help='Archive a note by ID')
+    parser_archive.add_argument('--id', type=int, required=True)
+    parser_archive.set_defaults(func=archive_note)
+
     # Standup
     parser_standup = subparsers.add_parser('standup', help='Run interactive standup session')
     parser_standup.set_defaults(func=standup_run)
@@ -352,8 +527,20 @@ def main():
 
     # List all notes
     parser_list = subparsers.add_parser('list', help='List all notes')
+    parser_list.add_argument('--tag', help='Filter notes containing a specific tag')
+    parser_list.add_argument('--all', action='store_true', help='Include archived notes')
     parser_list.set_defaults(func=list_notes)
 
+    # List all items
+    parser_items = subparsers.add_parser('items', help='List all items across notes')
+    parser_items.add_argument('--status', choices=['open', 'closed', 'all'], default='all', help='Filter by item status')
+    parser_items.set_defaults(func=list_items)
+
+    # Export command
+    parser_export = subparsers.add_parser('export', help='Export all notes')
+    parser_export.add_argument('--format', required=True, choices=['json', 'markdown'], help='Export format')
+    parser_export.add_argument('--out', help='Output filename')
+    parser_export.set_defaults(func=export_notes)
 
     args = parser.parse_args()
 
