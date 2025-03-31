@@ -2,15 +2,16 @@ from dexnotes.db import get_connection
 from datetime import datetime
 import json
 from dexnotes.models import Note
+from typing import Optional
 
-def export_notes(args):
+def export_notes(format: str, out: Optional[str] = None):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute('SELECT id, customer, timestamp, tags, notes, items, deadlines, archived FROM notes')
     rows = cursor.fetchall()
     conn.close()
     
-        # Prepare export data
+    # Prepare export data
     notes_list = []
     for row in rows:
         note = Note(
@@ -20,12 +21,13 @@ def export_notes(args):
             tags=row[3],
             notes=row[4],
             items=json.loads(row[5]) if row[5] else None,
-            deadlines=json.loads(row[6]) if row[6] else None
+            deadlines=json.loads(row[6]) if row[6] else None,
+            archived=bool(row[7])
         )
         notes_list.append(note)
 
     date_str = datetime.now().strftime("%Y-%m-%d")
-    export_format = args.format.lower()
+    export_format = format.lower()
     if export_format == 'json':
         output = json.dumps(notes_list, indent=2)
         default_filename = f"notes_{date_str}.json"
@@ -45,7 +47,7 @@ def export_notes(args):
         print("❌ Unsupported format.")
         return
 
-    filename = args.out if args.out else default_filename
+    filename = out if out else default_filename
     with open(filename, 'w', encoding='utf-8') as f:
         f.write(output)
     print(f"✅ Notes exported to {filename}.")

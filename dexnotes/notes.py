@@ -3,52 +3,52 @@ from dexnotes.db import get_connection
 import json
 from datetime import datetime
 
-def add_note(args):
+def add_note(customer, date=None, tags=None, notes=None, items=None, deadlines=None):
     conn = get_connection()
     cursor = conn.cursor()
-    if args.date:
+    if date:
         try:
-            timestamp = datetime.fromisoformat(args.date).isoformat()
+            timestamp = datetime.fromisoformat(date).isoformat()
         except ValueError:
             print("❌ Invalid date format. Use YYYY-MM-DD.")
             return
     else:
         timestamp = datetime.utcnow().isoformat()    
-    tags = ','.join(args.tags) if args.tags else None
+    tags = ','.join(tags) if tags else None
 
-    if args.items:
-        structured_items = [{"text": item, "status": "open"} for item in args.items]
+    if items:
+        structured_items = [{"text": item, "status": "open"} for item in items]
         items = json.dumps(structured_items)
     else:
         items = None
 
-    deadlines = json.dumps(args.deadlines) if args.deadlines else None
+    deadlines = json.dumps(deadlines) if deadlines else None
 
     cursor.execute('''
         INSERT INTO notes (customer, timestamp, tags, notes, items, deadlines)
         VALUES (?, ?, ?, ?, ?, ?)
-    ''', (args.customer, timestamp, tags, args.notes, items, deadlines))
+    ''', (customer, timestamp, tags, notes, items, deadlines))
 
     conn.commit()
     conn.close()
-    print(f"✅ Note added for {args.customer}.")
+    print(f"✅ Note added for {customer}.")
 
-def view_notes(args):
+def view_notes(customer):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute('''
         SELECT id, customer, timestamp, tags, notes, items, deadlines, archived FROM notes
         WHERE customer = ?
         ORDER BY timestamp DESC
-    ''', (args.customer,))
+    ''', (customer,))
     rows = cursor.fetchall()
     conn.close()
 
     if not rows:
-        print(f"No notes found for {args.customer}.")
+        print(f"No notes found for {customer}.")
         return
 
-    print(f"\n📒 Notes for {args.customer}:\n")
+    print(f"\n📒 Notes for {customer}:\n")
     for row in rows:
         note = Note(*row)
         print(f"🆔 ID: {note.id}")
@@ -73,15 +73,15 @@ def view_notes(args):
                 print("⚠️  Failed to parse deadlines.")
         print("-" * 40)
 
-def search_notes(args):
+def search_notes(query):
     conn = get_connection()
     cursor = conn.cursor()
-    query = '''
+    query_sql = '''
         SELECT id, customer, timestamp, tags, notes, items, deadlines, archived FROM notes
         WHERE notes LIKE ? OR tags LIKE ?
     '''
-    params = [f'%{args.query}%', f'%{args.query}%']
-    cursor.execute(query, params)
+    params = [f'%{query}%', f'%{query}%']
+    cursor.execute(query_sql, params)
     rows = cursor.fetchall()
 
     matching_notes = []
@@ -93,7 +93,7 @@ def search_notes(args):
             try:
                 parsed_items = json.loads(note.items)
                 for item in parsed_items:
-                    if isinstance(item, dict) and args.query in item.get('text', ''):
+                    if isinstance(item, dict) and query in item.get('text', ''):
                         matching_notes.append(note)
                         break
             except Exception:
@@ -128,7 +128,7 @@ def search_notes(args):
 
         print("-" * 60)
 
-def list_customers(args):
+def list_customers():
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute('SELECT DISTINCT customer FROM notes ORDER BY customer')
@@ -140,27 +140,27 @@ def list_customers(args):
         print(f"- {cust}")
     print()
 
-def edit_note(args):
+def edit_note(id, customer=None, date=None, tags=None, notes=None, items=None, deadlines=None):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM notes WHERE id = ?', (args.id,))
+    cursor.execute('SELECT * FROM notes WHERE id = ?', (id,))
     note_data = cursor.fetchone()
 
     if not note_data:
-        print(f"❌ Note with ID {args.id} not found.")
+        print(f"❌ Note with ID {id} not found.")
         return
 
     note = Note(*note_data)
 
     updated_fields = {
-        "customer": args.customer or note.customer,
-        "timestamp": datetime.fromisoformat(args.date).isoformat() if args.date else datetime.utcnow().isoformat(),
-        "tags": ','.join(args.tags) if args.tags else note.tags,
-        "notes": args.notes or note.notes,
+        "customer": customer or note.customer,
+        "timestamp": datetime.fromisoformat(date).isoformat() if date else datetime.utcnow().isoformat(),
+        "tags": ','.join(tags) if tags else note.tags,
+        "notes": notes or note.notes,
         "items": json.dumps(
-            [{"text": item, "status": "open"} for item in args.items]
-        ) if args.items else note.items,
-        "deadlines": json.dumps(args.deadlines) if args.deadlines else note.deadlines,
+            [{"text": item, "status": "open"} for item in items]
+        ) if items else note.items,
+        "deadlines": json.dumps(deadlines) if deadlines else note.deadlines,
     }
 
     cursor.execute('''
@@ -174,34 +174,34 @@ def edit_note(args):
         updated_fields["notes"],
         updated_fields["items"],
         updated_fields["deadlines"],
-        args.id
+        id
     ))
 
     conn.commit()
     conn.close()
-    print(f"✏️ Note {args.id} updated.")
+    print(f"✏️ Note {id} updated.")
 
-def delete_note(args):
+def delete_note(id):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM notes WHERE id = ?', (args.id,))
+    cursor.execute('SELECT * FROM notes WHERE id = ?', (id,))
     note = cursor.fetchone()
 
     if not note:
-        print(f"❌ Note with ID {args.id} not found.")
+        print(f"❌ Note with ID {id} not found.")
         return
 
-    confirm = input(f"⚠️ Are you sure you want to delete note ID {args.id}? (y/n): ").lower()
+    confirm = input(f"⚠️ Are you sure you want to delete note ID {id}? (y/n): ").lower()
     if confirm != 'y':
         print("Cancelled.")
         return
 
-    cursor.execute('DELETE FROM notes WHERE id = ?', (args.id,))
+    cursor.execute('DELETE FROM notes WHERE id = ?', (id,))
     conn.commit()
     conn.close()
-    print(f"🗑️ Note {args.id} deleted.")
+    print(f"🗑️ Note {id} deleted.")
 
-def standup_run(args):
+def standup_run():
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute('SELECT id, customer, items FROM notes')
@@ -234,29 +234,29 @@ def standup_run(args):
             if not isinstance(item, dict) or item.get("status") != "open":
                 continue
 
-        print(f"\n🔹 Item: {item['text']}")
-        choice = input("   [s]kip, [u]pdate, [c]lose, [a]dd item? ").strip().lower()
+            print(f"\n🔹 Item: {item['text']}")
+            choice = input("   [s]kip, [u]pdate, [c]lose, [a]dd item? ").strip().lower()
 
-        if choice == 'c':
-            item['status'] = 'closed'
-            report.setdefault(customer, []).append(f"✅ Closed: {item['text']}")
-        elif choice == 'u':
-            new_text = input("   ✏️  New text: ").strip()
-            old_text = item['text']
-            item['text'] = new_text
-            report.setdefault(customer, []).append(f"🔄 Updated: {old_text} → {new_text}")
-        elif choice == 'a':
-            new_item_text = input("   ➕ New item text: ").strip()
-            new_item = {"text": new_item_text, "status": "open"}
-            items.append(new_item)
-            report.setdefault(customer, []).append(f"➕ Added item: {new_item_text}")
-        elif choice == 's':
-            report.setdefault(customer, []).append(f"⏭️ Skipped: {item['text']}")
-        else:
-            print("   ❓ Invalid choice, skipping.")
-            report.setdefault(customer, []).append(f"⏭️ Skipped (invalid input): {item['text']}")
+            if choice == 'c':
+                item['status'] = 'closed'
+                report.setdefault(customer, []).append(f"✅ Closed: {item['text']}")
+            elif choice == 'u':
+                new_text = input("   ✏️  New text: ").strip()
+                old_text = item['text']
+                item['text'] = new_text
+                report.setdefault(customer, []).append(f"🔄 Updated: {old_text} → {new_text}")
+            elif choice == 'a':
+                new_item_text = input("   ➕ New item text: ").strip()
+                new_item = {"text": new_item_text, "status": "open"}
+                items.append(new_item)
+                report.setdefault(customer, []).append(f"➕ Added item: {new_item_text}")
+            elif choice == 's':
+                report.setdefault(customer, []).append(f"⏭️ Skipped: {item['text']}")
+            else:
+                print("   ❓ Invalid choice, skipping.")
+                report.setdefault(customer, []).append(f"⏭️ Skipped (invalid input): {item['text']}")
 
-        updated_notes.append((json.dumps(items), note_id))
+            updated_notes.append((json.dumps(items), note_id))
 
     # Update notes in DB
     for items_json, note_id in updated_notes:
@@ -281,7 +281,7 @@ def standup_run(args):
 
     print(f"\n📄 Standup complete. Markdown report saved as: {report_filename}")
 
-def list_notes(args):
+def list_notes(all=False, tag=None):
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -291,12 +291,12 @@ def list_notes(args):
     conditions = []
     params = []
 
-    if not args.all:
+    if not all:
         conditions.append("archived = 0")
 
-    if args.tag:
+    if tag:
         conditions.append("tags LIKE ?")
-        params.append(f'%{args.tag}%')
+        params.append(f'%{tag}%')
 
     if conditions:
         query += ' WHERE ' + ' AND '.join(conditions)
@@ -334,7 +334,7 @@ def list_notes(args):
 
         print("-" * 60)
 
-def list_items(args):
+def list_items(status):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute('SELECT id, customer, items FROM notes')
@@ -355,7 +355,7 @@ def list_items(args):
 
         for item in items:
             if isinstance(item, dict):
-                if args.status == 'all' or item.get('status') == args.status:
+                if status == 'all' or item.get('status') == status:
                     filtered_items.append((note_id, customer, item['text'], item['status']))
 
     if not filtered_items:
@@ -366,17 +366,17 @@ def list_items(args):
     for note_id, customer, text, status in filtered_items:
         print(f"🆔 Note ID: {note_id} | 🧑 Customer: {customer} | 📋 Item: {text} | Status: {status}")
 
-def archive_note(args):
+def archive_note(id):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT id FROM notes WHERE id = ?', (args.id,))
+    cursor.execute('SELECT id FROM notes WHERE id = ?', (id,))
     note = cursor.fetchone()
 
     if not note:
-        print(f"❌ Note with ID {args.id} not found.")
+        print(f"❌ Note with ID {id} not found.")
         return
 
-    cursor.execute('UPDATE notes SET archived = 1 WHERE id = ?', (args.id,))
+    cursor.execute('UPDATE notes SET archived = 1 WHERE id = ?', (id,))
     conn.commit()
     conn.close()
-    print(f"📦 Note {args.id} archived.")
+    print(f"📦 Note {id} archived.")
