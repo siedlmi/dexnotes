@@ -1,5 +1,5 @@
 notes.db
-
+.DS_Store
 # Python bytecode files
 __pycache__/
 *.py[cod]
